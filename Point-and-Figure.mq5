@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright © 2022, www.EarnForex.com"
 #property link      "https://www.earnforex.com/metatrader-indicators/Point-and-Figure-Indicator/"
-#property version   "1.00"
+#property version   "1.01"
 
 #property description "Point-and-Figure is a basic point-and-figure charting indicator based on real ticks data."
 #property description "It supports full customization and all types of alerts."
@@ -98,19 +98,30 @@ int OnCalculate(const int rates_total,
     if (iBarShift(Symbol(), Period(), iTime(Symbol(), Period(), 0), true) < 0) // iBarShift failure.
     {
         // When chart data is in normal state, there shouldn't be an error when searching for the current bar with iBarShift.
+        Print("Syncing...");
         return prev_calculated;
     }
-    if ((LastBars < rates_total) && (LastBars != 0) && (LastBarTime != Time[rates_total - 1]))
+    // rates_total is unreliable - sometimes, if the number of bars becomes greater than max number of bars possible, and a lot of new bars arrive, rates_total gets reset to that max number.
+    if (Number > 0) // At least one object exists.
     {
         if (Number > MaxObjects) Print("Warning: Too many X/O objects!");
-        while (LastBars < rates_total)
-        {   
-            MoveAllRight();
-            LastBars++;
+        datetime pt = (int)ObjectGetInteger(ChartID(), ObjectPrefix + IntegerToString(Number - 1), OBJPROP_TIME, 0);
+        int bar = iBarShift(Symbol(), Period(), pt, true);
+        if (bar < 0) // Error.
+        {
+            Print("Syncing...");
+            return prev_calculated;
         }
-        LastBarTime = Time[rates_total - 1]; // Remember current bar time.
+        if (bar > 0) // Objects should be moved.
+        {
+            Print("Moving all objects ", bar, " times.");
+            while (bar > 0)
+            {   
+                if (!MoveAllRight()) return prev_calculated; // Failed to move. Should wait for the chart to load fully.
+                bar--;
+            }
+        }
     }
-    LastBars = rates_total;
 
     MqlTick ticks_array[];
     int end_time_seconds = (int)TimeCurrent();
@@ -287,7 +298,7 @@ void DrawO(double price)
     if (!SilentMode) Print("O: ", price);
 }
 
-void MoveAllRight()
+bool MoveAllRight()
 {
     if (!SilentMode) Print("Moving all X/O to the right...");
     for (int i = 0; i < Number; i++)
@@ -296,10 +307,15 @@ void MoveAllRight()
         int bar = iBarShift(Symbol(), Period(), pt, true);
         if (bar > 0) bar--;
         else if (bar == 0) Print("Can't move right!");
-        else if (bar < 0) Print("iBarShift error! ", __FUNCTION__, " ", pt);
+        else if (bar < 0)
+        {
+            Print("iBarShift error! ", __FUNCTION__, " ", pt);
+            return false;
+        }
         pt = iTime(Symbol(), Period(), bar);
         ObjectSetInteger(ChartID(), ObjectPrefix + IntegerToString(i), OBJPROP_TIME, 0, (int)pt);
     }
+    return true;
 }
 
 void MoveAllLeft()
